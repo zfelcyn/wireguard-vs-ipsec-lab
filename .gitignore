@@ -1,0 +1,7 @@
+# secrets / keys
+envs/**/wireguard/keys/*
+*.key
+*.crt
+# local outputs
+experiments/**/raw/*
+**/.DS_Store

@@ -1,0 +1,14 @@
+[Interface]
+Address = {{ wg_ip }}
+ListenPort = 51820
+PrivateKey = {{ lookup('file', wg_privkey_path) }}
+
+# Allow forwarding between LAN and tunnel
+PostUp = sysctl -w net.ipv4.ip_forward=1
+PostDown = sysctl -w net.ipv4.ip_forward=0
+
+[Peer]
+PublicKey = {{ peer_pubkey }}
+AllowedIPs = {{ peer_wg_ip }}, {{ peer_lan_cidr }}
+Endpoint = {{ peer_endpoint }}:51820
+PersistentKeepalive = 25

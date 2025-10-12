@@ -1,0 +1,9 @@
+services:
+  iperf3-server:
+    image: networkstatic/iperf3
+    command: -s
+    ports:
+      - "5201:5201"
+  iperf3-client:
+    image: networkstatic/iperf3
+    command: ["sh","-lc","sleep infinity"]

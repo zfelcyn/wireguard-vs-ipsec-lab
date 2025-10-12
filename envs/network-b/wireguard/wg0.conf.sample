@@ -1,0 +1,10 @@
+[Interface]
+Address = 10.10.10.2/24
+PrivateKey = <BASE64_PRIVATE_KEY_B>
+ListenPort = 51820
+
+[Peer]
+PublicKey = <PUBLIC_KEY_A>
+AllowedIPs = 10.10.10.0/24, 10.0.1.0/24   # A's LAN + tunnel
+Endpoint = <peerA.public.ip>:51820
+PersistentKeepalive = 25

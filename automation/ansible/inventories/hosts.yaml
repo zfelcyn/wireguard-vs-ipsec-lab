@@ -1,0 +1,14 @@
+all:
+  children:
+    network_a:
+      hosts:
+        peer_a:
+          ansible_host: 192.0.2.10
+          wg_ip: 10.10.10.1/24
+          lan_cidr: 10.0.1.0/24
+    network_b:
+      hosts:
+        peer_b:
+          ansible_host: 198.51.100.20
+          wg_ip: 10.10.10.2/24
+          lan_cidr: 10.0.2.0/24
