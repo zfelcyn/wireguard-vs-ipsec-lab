@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# setup.sh — WireGuard quick setup
+# setupUbuntu.sh — Full WireGuard + test tools setup
 # Usage:
-#   ./setup.sh --config ~/wg0.conf [--port 51820] [--ufw]
+#   ./automation/scripts/setupUbuntu.sh --config ~/wg0.conf [--port 51820] [--ufw]
 # Defaults:
 #   --config defaults to ~/wg0.conf
 #   --port   defaults to 51820
 # Behavior:
-#   On Ubuntu: installs wireguard, copies config to /etc/wireguard/wg0.conf,
-#              chmod 600, enables & starts wg-quick@wg0, optional ufw allow.
-#   On non-Ubuntu: prints a helpful hint and exits (safe no-op).
+#   Installs all dependencies (WireGuard, UFW, iperf3, tcpdump),
+#   installs config to /etc/wireguard/wg0.conf, enables wg-quick@wg0,
+#   opens the firewall if requested, and starts a one-shot iperf3 server for testing.
 
 set -euo pipefail
 
@@ -18,16 +18,13 @@ ALLOW_UFW=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --config)
-      CONFIG="${2:-}"; shift 2;;
-    --port)
-      PORT="${2:-}"; shift 2;;
-    --ufw)
-      ALLOW_UFW=true; shift;;
+    --config) CONFIG="${2:-}"; shift 2;;
+    --port)   PORT="${2:-}"; shift 2;;
+    --ufw)    ALLOW_UFW=true; shift;;
     -h|--help)
-      grep -E '^# (Usage|Defaults|Behavior):' -A5 "$0" | sed 's/^# //'; exit 0;;
-    *)
-      echo "Unknown arg: $1" >&2; exit 1;;
+      grep -E '^# (Usage|Defaults|Behavior):' -A5 "$0" | sed 's/^# //'
+      exit 0;;
+    *) echo "Unknown arg: $1" >&2; exit 1;;
   esac
 done
 
@@ -41,36 +38,21 @@ if [[ $EUID -ne 0 ]]; then
   exec sudo --preserve-env=CONFIG,PORT,ALLOW_UFW "$0" "$@"
 fi
 
-# Detect Ubuntu (or Debian) via /etc/os-release
-OS_ID="unknown"
+# Detect Ubuntu/Debian
 if [[ -r /etc/os-release ]]; then
-  # shellcheck disable=SC1091
   . /etc/os-release
-  OS_ID="${ID:-unknown}"
-  ID_LIKE_LOWER="$(echo "${ID_LIKE:-}" | tr '[:upper:]' '[:lower:]')"
+  case "${ID,,}" in
+    ubuntu|debian) ;;
+    *) echo "This script is intended for Ubuntu/Debian."; exit 1;;
+  esac
 fi
 
-is_ubuntu=false
-if [[ "$OS_ID" == "ubuntu" || "$OS_ID" == "debian" || "$ID_LIKE_LOWER" == *"debian"* ]]; then
-  is_ubuntu=true
-fi
-
-if ! $is_ubuntu; then
-  echo "This script is intended for Ubuntu/Debian servers."
-  echo "Detected OS: ${OS_ID:-unknown}"
-  echo
-  echo "If you're on macOS as the client, you can do:"
-  echo "  brew install wireguard-tools"
-  echo "  sudo wg-quick up /path/to/your/envs/network-a/wireguard/wg0.conf"
-  exit 0
-fi
-
-echo "==> Installing WireGuard (if needed)…"
+echo "==> Updating and installing required packages..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y wireguard wireguard-tools
+apt-get install -y wireguard wireguard-tools iperf3 tcpdump ufw systemd
 
-echo "==> Preparing /etc/wireguard…"
+echo "==> Preparing /etc/wireguard..."
 mkdir -p /etc/wireguard
 chmod 750 /etc/wireguard
 
@@ -82,42 +64,41 @@ if [[ -f "$TARGET" ]]; then
 fi
 
 echo "==> Installing config from: $CONFIG"
-# Accept either absolute or relative paths, and allow '~' if passed
-# Expand tilde manually if present
-if [[ "$CONFIG" == "~/"* ]]; then
-  CONFIG="${CONFIG/\~/$HOME}"
-fi
+if [[ "$CONFIG" == "~/"* ]]; then CONFIG="${CONFIG/\~/$HOME}"; fi
 install -m 600 "$CONFIG" "$TARGET"
 
-# Basic sanity check: ensure the file has an [Interface] stanza
 if ! grep -q '^\[Interface\]' "$TARGET"; then
-  echo "WARNING: $TARGET does not look like a valid WireGuard config (missing [Interface])." >&2
+  echo "WARNING: $TARGET may be invalid (missing [Interface])." >&2
 fi
 
-# Optional: open UFW port
+# Enable forwarding
+sysctl -w net.ipv4.ip_forward=1
+
+# Firewall rules
 if $ALLOW_UFW; then
   if command -v ufw >/dev/null 2>&1; then
-    echo "==> Allowing UDP ${PORT}/udp via UFW (if not already allowed)…"
+    echo "==> Allowing UDP ${PORT}/udp via UFW..."
     ufw allow "${PORT}/udp" || true
-  else
-    echo "==> UFW not installed. Skipping firewall rule."
   fi
 fi
 
-echo "==> Enabling & starting wg-quick@wg0 via systemd…"
+echo "==> Enabling and starting wg-quick@wg0..."
 systemctl daemon-reload || true
 systemctl enable wg-quick@wg0
-# If already active, restart for good measure
-if systemctl is-active --quiet wg-quick@wg0; then
-  systemctl restart wg-quick@wg0
-else
-  systemctl start wg-quick@wg0
-fi
+systemctl restart wg-quick@wg0
 
-echo "==> Status:"
+echo "==> Verifying WireGuard status..."
 systemctl --no-pager --full status wg-quick@wg0 || true
-echo
-echo "==> Current interface state (wg):"
 wg || true
+
 echo
-echo "All set. If this is the server (listener), ensure your peer points its Endpoint to this host’s public IP:${PORT}/udp."
+echo "==> Launching temporary iperf3 server on port 5201..."
+pkill iperf3 || true
+nohup iperf3 -s -p 5201 -1 -J >/tmp/iperf3-server.json 2>&1 &
+sleep 1
+echo "iperf3 server ready for one test on port 5201 (JSON will be in /tmp/iperf3-server.json)"
+echo
+echo "==> All set."
+echo "If this is the server (listener), ensure your peer's Endpoint is set to this host’s public IP:${PORT}/udp."
+echo "Use:   sudo wg     # to inspect state"
+echo "       sudo tcpdump -ni any udp port ${PORT}   # to debug traffic"
