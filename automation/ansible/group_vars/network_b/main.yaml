@@ -1,0 +1,12 @@
+wg:
+  interface: wg0
+  address: "10.10.10.2/24"
+  listen_port: 51820
+  private_key_file: "{{ playbook_dir }}/../../envs/network-b/wireguard/keys/privatekey"
+
+  # Peer = your Mac (client)
+  peer:
+    public_key_file: "{{ playbook_dir }}/../../envs/network-a/wireguard/keys/publickey"
+    allowed_ips: ["10.10.10.0/24"]   # add remote LANs later if you route them
+    # IMPORTANT: no endpoint here (server is passive)
+    # endpoint: ""   <-- leave undefined
