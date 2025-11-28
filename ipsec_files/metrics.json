@@ -1,0 +1,9 @@
+{
+  "vm1_packets": 356,
+  "vm2_packets": 340,
+  "avg_latency_delta": -2.95730660943424,
+  "max_latency_delta": 46.475050926208496,
+  "min_latency_delta": -9.985580921173096,
+  "packet_loss_vm1_to_vm2": 16,
+  "packet_loss_vm2_to_vm1": 0
+}
