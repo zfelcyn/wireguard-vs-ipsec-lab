@@ -1,0 +1,158 @@
+# WireGuard vs IPsec Lab - Monitoring Stack
+# Includes Prometheus, Grafana, and custom VPN metrics exporter
+
+services:
+  # ============================================
+  # Performance Testing Tools
+  # ============================================
+  iperf3-server:
+    image: networkstatic/iperf3
+    container_name: iperf3-server
+    command: -s
+    ports:
+      - "5201:5201"
+    networks:
+      - vpn-lab
+    restart: unless-stopped
+
+  iperf3-client:
+    image: networkstatic/iperf3
+    container_name: iperf3-client
+    command: ["sh", "-lc", "sleep infinity"]
+    networks:
+      - vpn-lab
+    restart: unless-stopped
+
+  # ============================================
+  # Monitoring Stack
+  # ============================================
+  
+  # Prometheus - Metrics collection and storage
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: prometheus
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    ports:
+      - "9090:9090"
+    networks:
+      - vpn-lab
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Grafana - Visualization and dashboards
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=vpnlab123
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - vpn-lab
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Pushgateway - For pushing batch job metrics (iperf results)
+  pushgateway:
+    image: prom/pushgateway:v1.6.2
+    container_name: pushgateway
+    ports:
+      - "9091:9091"
+    networks:
+      - vpn-lab
+    restart: unless-stopped
+
+  # VPN Metrics Exporter - Custom Python exporter
+  vpn-exporter:
+    build:
+      context: ./monitoring/exporter
+      dockerfile: Dockerfile
+    container_name: vpn-exporter
+    volumes:
+      - /var/run:/var/run:ro
+      - ./monitoring/exporter:/app:ro
+    environment:
+      - EXPORTER_PORT=9100
+      - WIREGUARD_INTERFACE=wg0
+      - IPSEC_CHECK=true
+    ports:
+      - "9100:9100"
+    networks:
+      - vpn-lab
+    restart: unless-stopped
+    # Requires host network for VPN interface access in production
+    # network_mode: host
+
+  # Node Exporter - System metrics (Network A simulation)
+  node-exporter-a:
+    image: prom/node-exporter:v1.6.1
+    container_name: node-exporter-a
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--collector.netclass.ignored-devices=^(veth.*)$$'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    ports:
+      - "9101:9100"
+    networks:
+      - vpn-lab
+    restart: unless-stopped
+
+  # Node Exporter - System metrics (Network B simulation)
+  node-exporter-b:
+    image: prom/node-exporter:v1.6.1
+    container_name: node-exporter-b
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--collector.netclass.ignored-devices=^(veth.*)$$'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    ports:
+      - "9102:9100"
+    networks:
+      - vpn-lab
+    restart: unless-stopped
+
+networks:
+  vpn-lab:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:

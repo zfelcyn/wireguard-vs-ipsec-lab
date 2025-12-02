@@ -1,0 +1,2 @@
+# VPN Metrics Exporter
+# No external dependencies required - uses Python stdlib only

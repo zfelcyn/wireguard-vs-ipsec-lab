@@ -1,0 +1,63 @@
+# Prometheus configuration for WireGuard vs IPsec VPN Lab
+# Scrapes VPN metrics, node exporters, and custom iperf metrics
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'vpn-lab'
+
+# Alerting rules (optional - can be extended)
+rule_files:
+  - "alerts/*.yml"
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Custom VPN metrics exporter
+  - job_name: 'vpn-metrics'
+    static_configs:
+      - targets: ['vpn-exporter:9100']
+    metrics_path: /metrics
+    scrape_interval: 10s
+
+  # Node Exporter - Network A
+  - job_name: 'node-network-a'
+    static_configs:
+      - targets: ['node-exporter-a:9100']
+        labels:
+          network: 'network-a'
+          role: 'vpn-endpoint'
+
+  # Node Exporter - Network B
+  - job_name: 'node-network-b'
+    static_configs:
+      - targets: ['node-exporter-b:9100']
+        labels:
+          network: 'network-b'
+          role: 'vpn-endpoint'
+
+  # WireGuard Exporter (if using wireguard_exporter)
+  - job_name: 'wireguard'
+    static_configs:
+      - targets: ['wireguard-exporter:9586']
+        labels:
+          vpn_type: 'wireguard'
+    scrape_interval: 10s
+
+  # IPsec metrics (via custom exporter or node metrics)
+  - job_name: 'ipsec'
+    static_configs:
+      - targets: ['ipsec-exporter:9101']
+        labels:
+          vpn_type: 'ipsec'
+    scrape_interval: 10s
+
+  # Pushgateway for batch jobs (iperf results)
+  - job_name: 'pushgateway'
+    honor_labels: true
+    static_configs:
+      - targets: ['pushgateway:9091']
